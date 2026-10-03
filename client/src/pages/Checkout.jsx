@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { CreditCard, Lock, MapPin } from "lucide-react"
-import { paymentsAPI } from "../services/api"
+import { paymentsAPI } from "../utils/api"
 import { useCart } from "../contexts/CartContext"
 
 const FREE_SHIPPING_THRESHOLD = 999
