@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { CreditCard, Lock, MapPin } from "lucide-react"
-
+import { paymentsAPI } from "../services/api"
 import { useCart } from "../contexts/CartContext"
 
 const FREE_SHIPPING_THRESHOLD = 999
@@ -83,34 +83,22 @@ const Checkout = () => {
       }
 
       /*
-       * Ask our backend to calculate the actual cart total
-       * and create a Razorpay order.
-       */
-      const createResponse = await fetch(
-        "/api/payments/razorpay/create-order",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            shippingAddress: shippingData,
-          }),
-        },
+      * Ask our backend to calculate the actual cart total
+      * and create a Razorpay order.
+      */
+      const createResponse = await paymentsAPI.createRazorpayOrder(
+        shippingData
       )
 
-      const createData = await createResponse.json()
+      const createData = createResponse.data
 
-      if (!createResponse.ok) {
-        throw new Error(
-          createData.message || "Failed to create payment",
-        )
+      if (!createData) {
+        throw new Error("Failed to create payment")
       }
 
       if (!window.Razorpay) {
         throw new Error(
-          "Razorpay Checkout failed to load. Please refresh the page.",
+          "Razorpay Checkout failed to load. Please refresh the page."
         )
       }
 
@@ -143,48 +131,39 @@ const Checkout = () => {
           try {
             setLoading(true)
 
-            const verifyResponse = await fetch(
-              "/api/payments/razorpay/verify",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  razorpay_order_id:
-                    response.razorpay_order_id,
+            const verifyResponse =
+              await paymentsAPI.verifyRazorpayPayment({
+                razorpay_order_id:
+                  response.razorpay_order_id,
 
-                  razorpay_payment_id:
-                    response.razorpay_payment_id,
+                razorpay_payment_id:
+                  response.razorpay_payment_id,
 
-                  razorpay_signature:
-                    response.razorpay_signature,
-                }),
-              },
-            )
+                razorpay_signature:
+                  response.razorpay_signature,
+              })
 
-            const verifyData = await verifyResponse.json()
+            const verifyData = verifyResponse.data
 
-            if (!verifyResponse.ok) {
+            if (!verifyData) {
               throw new Error(
-                verifyData.message ||
-                  "Payment verification failed",
+                "Payment verification failed"
               )
             }
 
             navigate(
-              `/orders/${verifyData.orderId}?payment=success&method=razorpay&id=${verifyData.paymentId}`,
+              `/orders/${verifyData.orderId}?payment=success&method=razorpay&id=${verifyData.paymentId}`
             )
           } catch (verificationError) {
             console.error(
               "Payment verification error:",
-              verificationError,
+              verificationError
             )
 
             setError(
-              verificationError.message ||
-                "Payment was successful, but order verification failed. Please contact support.",
+              verificationError.response?.data?.message ||
+                verificationError.message ||
+                "Payment was successful, but order verification failed. Please contact support."
             )
           } finally {
             setLoading(false)
@@ -203,12 +182,12 @@ const Checkout = () => {
       razorpay.on("payment.failed", (response) => {
         console.error(
           "Razorpay payment failed:",
-          response.error,
+          response.error
         )
 
         setError(
           response.error?.description ||
-            "Payment failed. Please try again.",
+            "Payment failed. Please try again."
         )
 
         setLoading(false)
@@ -216,11 +195,15 @@ const Checkout = () => {
 
       razorpay.open()
     } catch (paymentError) {
-      console.error("Payment initialization error:", paymentError)
+      console.error(
+        "Payment initialization error:",
+        paymentError
+      )
 
       setError(
-        paymentError.message ||
-          "Unable to initialize payment",
+        paymentError.response?.data?.message ||
+          paymentError.message ||
+          "Unable to initialize payment"
       )
 
       setLoading(false)

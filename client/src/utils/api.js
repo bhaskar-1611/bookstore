@@ -152,6 +152,12 @@ export const wishlistAPI = {
   removeFromWishlist: (productId) => api.delete(`/wishlist/${productId}`),
 }
 
+// Payments API
+export const paymentsAPI = {
+  createRazorpayOrder: (shippingAddress) => api.post("/payments/razorpay/create-order", { shippingAddress }),
+  verifyRazorpayPayment: (paymentData) => api.post("/payments/razorpay/verify", paymentData),
+}
+
 // Admin API
 export const adminAPI = {
   getDashboard: () => api.get("/admin/dashboard"),
