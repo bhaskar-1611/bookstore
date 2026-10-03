@@ -3,6 +3,7 @@
 import { Outlet, Link, useLocation } from "react-router-dom"
 import { LayoutDashboard, Package, FolderOpen, ShoppingBag, Users, LogOut } from "lucide-react"
 import { useAuth } from "../../contexts/AuthContext"
+import { BookOpen } from "lucide-react";
 
 const AdminLayout = () => {
   const location = useLocation()
@@ -26,10 +27,24 @@ const AdminLayout = () => {
       <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg">
         <div className="flex h-16 items-center justify-center border-b border-gray-200">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">E</span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
+                <img
+                  src="/bookStore.png"
+                  alt="BookStore"
+                  className="w-10 h-10 object-contain"
+                />
+
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">
+                    Admin Panel
+                  </h1>
+                  <p className="text-xs text-gray-500">
+                    BookStore
+                  </p>
+                </div>
+              </div>
             </div>
-            <span className="text-xl font-bold text-gray-900">Admin Panel</span>
           </div>
         </div>
 

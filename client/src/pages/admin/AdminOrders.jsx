@@ -55,14 +55,22 @@ const AdminOrders = () => {
     switch (status) {
       case "pending":
         return "bg-yellow-100 text-yellow-800"
+
+      case "confirmed":
+        return "bg-green-100 text-green-800"
+
       case "processing":
         return "bg-blue-100 text-blue-800"
+
       case "shipped":
         return "bg-purple-100 text-purple-800"
+
       case "delivered":
         return "bg-green-100 text-green-800"
+
       case "cancelled":
         return "bg-red-100 text-red-800"
+
       default:
         return "bg-gray-100 text-gray-800"
     }
@@ -104,6 +112,7 @@ const AdminOrders = () => {
           >
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
             <option value="processing">Processing</option>
             <option value="shipped">Shipped</option>
             <option value="delivered">Delivered</option>
@@ -161,7 +170,7 @@ const AdminOrders = () => {
                       <span className="text-sm text-gray-900">{new Date(order.created_at).toLocaleDateString()}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">${order.total_amount}</span>
+                      <span className="text-sm font-medium text-gray-900">₹{Number(order.total_amount).toFixed(2)}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
@@ -170,6 +179,7 @@ const AdminOrders = () => {
                         className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(order.status)}`}
                       >
                         <option value="pending">Pending</option>
+                        <option value="confirmed">Confirmed</option>
                         <option value="processing">Processing</option>
                         <option value="shipped">Shipped</option>
                         <option value="delivered">Delivered</option>
@@ -246,12 +256,14 @@ const AdminOrders = () => {
                         <div>
                           <p className="text-sm font-medium text-gray-900">{item.products?.name}</p>
                           <p className="text-sm text-gray-500">
-                            Qty: {item.quantity} × ${item.price}
+                            <p className="text-sm text-gray-500">
+                              Qty: {item.quantity} × ₹{Number(item.price).toFixed(2)}
+                            </p>
                           </p>
                         </div>
                       </div>
                       <span className="text-sm font-medium text-gray-900">
-                        ${(item.price * item.quantity).toFixed(2)}
+                        ₹{Number(item.price * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   ))}
@@ -277,7 +289,7 @@ const AdminOrders = () => {
               <div className="border-t pt-4">
                 <div className="flex justify-between">
                   <span className="text-lg font-semibold text-gray-900">Total</span>
-                  <span className="text-lg font-semibold text-gray-900">${selectedOrder.total_amount}</span>
+                  <span className="text-lg font-semibold text-gray-900">₹{Number(selectedOrder.total_amount).toFixed(2)}</span>
                 </div>
               </div>
             </div>

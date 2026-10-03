@@ -206,7 +206,7 @@ const AdminProducts = () => {
                       <span className="text-sm text-gray-900">{product.categories?.name || "Uncategorized"}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">${product.price}</span>
+                      <span className="text-sm font-medium text-gray-900">₹{Number(product.price || 0).toFixed(2)}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Link, useNavigate, useLocation } from "react-router-dom"
-import { Eye, EyeOff, AlertCircle, Mail } from "lucide-react"
+import { Eye, EyeOff, AlertCircle, Mail, BookOpen } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
 
 const Login = () => {
@@ -62,9 +62,11 @@ const Login = () => {
       <div className="max-w-md w-full space-y-8">
         <div>
           <div className="flex justify-center">
-            <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-xl">E</span>
-            </div>
+              <img
+              src="/bookStore.png"
+              alt="Bookstore"
+              className="h-14 w-auto object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+            />
           </div>
           <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">Sign in to your account</h2>
           <p className="mt-2 text-center text-sm text-gray-600">
@@ -177,9 +179,6 @@ const Login = () => {
             </button>
           </div>
 
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Demo credentials: admin@example.com / admin123</p>
-          </div>
         </form>
       </div>
     </div>

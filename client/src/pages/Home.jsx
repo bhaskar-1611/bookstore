@@ -2,9 +2,27 @@
 
 import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
-import { ArrowRight, Truck, Shield, Headphones } from "lucide-react"
+import {
+  ArrowRight,
+  Truck,
+  ShieldCheck,
+  BookOpen,
+  Sparkles,
+  Heart,
+  Drama,
+  Headphones,
+} from "lucide-react"
+
 import { productsAPI, categoriesAPI } from "../utils/api"
 import ProductCard from "../components/ProductCard"
+
+const categoryIcons = {
+  "Contemporary Fiction": BookOpen,
+  Fantasy: Sparkles,
+  Romance: Heart,
+  Thriller: Drama,
+  "Young Adult": BookOpen,
+}
 
 const Home = () => {
   const [featuredProducts, setFeaturedProducts] = useState([])
@@ -18,12 +36,16 @@ const Home = () => {
   const loadHomeData = async () => {
     try {
       const [productsResponse, categoriesResponse] = await Promise.all([
-        productsAPI.getProducts({ limit: 8, sortBy: "created_at", sortOrder: "desc" }),
+        productsAPI.getProducts({
+          limit: 8,
+          sortBy: "created_at",
+          sortOrder: "desc",
+        }),
         categoriesAPI.getCategories(),
       ])
 
-      setFeaturedProducts(productsResponse.data.products)
-      setCategories(categoriesResponse.data.categories.slice(0, 4))
+      setFeaturedProducts(productsResponse.data.products || [])
+      setCategories(categoriesResponse.data.categories || [])
     } catch (error) {
       console.error("Failed to load home data:", error)
     } finally {
@@ -33,134 +55,262 @@ const Home = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
-    <div>
-      {/* Hero Section */}
+    <div className="bg-white">
+
+      {/* =========================================================
+          HERO SECTION
+      ========================================================= */}
       <section className="bg-gradient-to-r from-blue-600 to-blue-800 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-          <div className="text-center">
-            <h1 className="text-4xl md:text-6xl font-bold mb-6">Welcome to E-Store</h1>
-            <p className="text-xl md:text-2xl mb-8 text-blue-100">Discover amazing products at unbeatable prices</p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
+          <div className="max-w-3xl mx-auto text-center">
+
+            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-2 mb-6">
+              <BookOpen className="h-4 w-4" />
+              <span className="text-sm font-medium">
+                Your next great read is waiting
+              </span>
+            </div>
+
+            <h1 className="text-4xl md:text-6xl font-bold mb-6 leading-tight">
+              Discover Your Next
+              <span className="block text-blue-100">
+                Favorite Book
+              </span>
+            </h1>
+
+            <p className="text-lg md:text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
+              Explore stories that stay with you. From unforgettable
+              romances to magical worlds and gripping thrillers,
+              find your next favorite read.
+            </p>
+
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
+              <Link
+                to="/products"
+                className="inline-flex items-center justify-center bg-white text-blue-600 px-8 py-3.5 rounded-lg font-semibold hover:bg-gray-100 transition-colors duration-200"
+              >
+                Browse Books
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Link>
+
+              <a
+                href="#categories"
+                className="inline-flex items-center justify-center border border-white/40 text-white px-8 py-3.5 rounded-lg font-semibold hover:bg-white/10 transition-colors duration-200"
+              >
+                Explore Categories
+              </a>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+
+      {/* =========================================================
+          FEATURES
+      ========================================================= */}
+      <section className="py-12 bg-gray-50 border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+
+            <div className="flex items-center justify-center md:justify-start gap-4">
+              <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0">
+                <Truck className="h-6 w-6 text-blue-600" />
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  Free Shipping
+                </h3>
+                <p className="text-sm text-gray-600">
+                  On eligible orders
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center md:justify-start gap-4">
+              <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0">
+                <ShieldCheck className="h-6 w-6 text-blue-600" />
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  Secure Checkout
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Safe and secure payments
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center md:justify-start gap-4">
+              <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0">
+                <Headphones className="h-6 w-6 text-blue-600" />
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  Customer Support
+                </h3>
+                <p className="text-sm text-gray-600">
+                  We're here to help
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+
+      {/* =========================================================
+          CATEGORIES
+      ========================================================= */}
+      <section
+        id="categories"
+        className="py-16 md:py-20"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Browse by Category
+            </h2>
+
+            <p className="text-lg text-gray-600">
+              Find a story that matches your mood
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">
+
+            {categories.map((category) => {
+              const Icon =
+                categoryIcons[category.name] || BookOpen
+
+              return (
+                <Link
+                  key={category.id}
+                  to={`/products?category=${category.id}`}
+                  className="group"
+                >
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-lg hover:border-blue-200 transition-all duration-300">
+
+                    <div className="h-36 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center group-hover:from-blue-100 group-hover:to-indigo-100 transition-colors">
+
+                      <Icon
+                        className="h-14 w-14 text-blue-600 group-hover:scale-110 transition-transform duration-300"
+                        strokeWidth={1.5}
+                      />
+
+                    </div>
+
+                    <div className="p-4 text-center">
+                      <h3 className="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                        {category.name}
+                      </h3>
+                    </div>
+
+                  </div>
+                </Link>
+              )
+            })}
+
+          </div>
+        </div>
+      </section>
+
+
+      {/* =========================================================
+          FEATURED BOOKS
+      ========================================================= */}
+      <section className="py-16 md:py-20 bg-gray-50">
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between mb-10 gap-4">
+
+            <div>
+              <p className="text-blue-600 font-semibold text-sm uppercase tracking-wide mb-2">
+                Handpicked for you
+              </p>
+
+              <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
+                Featured Books
+              </h2>
+
+              <p className="text-lg text-gray-600 mt-2">
+                Discover some of our latest additions
+              </p>
+            </div>
+
             <Link
               to="/products"
-              className="inline-flex items-center bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors duration-200"
+              className="inline-flex items-center text-blue-600 font-semibold hover:text-blue-700"
             >
-              Shop Now
+              View All Books
               <ArrowRight className="ml-2 h-5 w-5" />
             </Link>
-          </div>
-        </div>
-      </section>
 
-      {/* Features Section */}
-      <section className="py-16 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Truck className="h-8 w-8 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Free Shipping</h3>
-              <p className="text-gray-600">Free shipping on orders over $50</p>
-            </div>
-
-            <div className="text-center">
-              <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Shield className="h-8 w-8 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Secure Payment</h3>
-              <p className="text-gray-600">Your payment information is safe with us</p>
-            </div>
-
-            <div className="text-center">
-              <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Headphones className="h-8 w-8 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">24/7 Support</h3>
-              <p className="text-gray-600">Get help whenever you need it</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Categories Section */}
-      <section className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Shop by Category</h2>
-            <p className="text-lg text-gray-600">Find exactly what you're looking for</p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {categories.map((category) => (
-              <Link key={category.id} to={`/products?category=${category.id}`} className="group">
-                <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300">
-                  <div className="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200">
-                    <img
-                      src={category.image_url || "/placeholder.svg?height=200&width=200&query=category"}
-                      alt={category.name}
-                      className="h-32 w-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
-                    />
-                  </div>
-                  <div className="p-4 text-center">
-                    <h3 className="text-lg font-medium text-gray-900">{category.name}</h3>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Featured Products Section */}
-      <section className="py-16 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Featured Products</h2>
-            <p className="text-lg text-gray-600">Check out our latest and greatest products</p>
-          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+
             {featuredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard
+                key={product.id}
+                product={product}
+              />
             ))}
+
           </div>
 
-          <div className="text-center mt-12">
+        </div>
+      </section>
+
+
+      {/* =========================================================
+          READING CTA
+      ========================================================= */}
+      <section className="py-16 md:py-20 bg-white">
+
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl px-6 py-12 md:px-12 text-center text-white">
+
+            <BookOpen className="h-10 w-10 mx-auto mb-5 text-blue-100" />
+
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+              A good book is always a good idea.
+            </h2>
+
+            <p className="text-lg text-blue-100 max-w-2xl mx-auto mb-8">
+              Take a break, turn a page, and discover a story
+              you'll want to remember.
+            </p>
+
             <Link
               to="/products"
-              className="inline-flex items-center bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200"
+              className="inline-flex items-center bg-white text-blue-600 px-8 py-3.5 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
             >
-              View All Products
+              Start Exploring
               <ArrowRight className="ml-2 h-5 w-5" />
             </Link>
+
           </div>
+
         </div>
       </section>
 
-      {/* Newsletter Section */}
-      <section className="py-16 bg-blue-600">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl font-bold text-white mb-4">Stay Updated</h2>
-          <p className="text-xl text-blue-100 mb-8">Subscribe to our newsletter for the latest deals and updates</p>
-          <div className="max-w-md mx-auto flex">
-            <input
-              type="email"
-              placeholder="Enter your email"
-              className="flex-1 px-4 py-3 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <button className="bg-blue-800 text-white px-6 py-3 rounded-r-lg hover:bg-blue-900 transition-colors duration-200">
-              Subscribe
-            </button>
-          </div>
-        </div>
-      </section>
     </div>
   )
 }

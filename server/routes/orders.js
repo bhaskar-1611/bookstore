@@ -55,6 +55,13 @@ router.get("/:id", authenticateToken, async (req, res) => {
       .from("orders")
       .select(`
         *,
+        users (
+          id,
+          first_name,
+          last_name,
+          email,
+          phone
+        ),
         order_items (
           *,
           products (
@@ -91,159 +98,14 @@ router.get("/:id", authenticateToken, async (req, res) => {
   }
 })
 
-// Create new order
-router.post(
-  "/",
-  authenticateToken,
-  [
-    body("shippingAddress").isObject(),
-    body("shippingAddress.streetAddress").trim().isLength({ min: 1 }),
-    body("shippingAddress.city").trim().isLength({ min: 1 }),
-    body("shippingAddress.state").trim().isLength({ min: 1 }),
-    body("shippingAddress.postalCode").trim().isLength({ min: 1 }),
-    body("shippingAddress.country").trim().isLength({ min: 1 }),
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req)
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() })
-      }
-
-      const { shippingAddress } = req.body
-
-      // Get user's cart items
-      const { data: cartItems, error: cartError } = await supabase
-        .from("cart")
-        .select(`
-          *,
-          products (
-            id,
-            name,
-            price,
-            stock_quantity,
-            is_active
-          )
-        `)
-        .eq("user_id", req.user.id)
-
-      if (cartError || !cartItems || cartItems.length === 0) {
-        return res.status(400).json({ message: "Cart is empty" })
-      }
-
-      // Validate stock and calculate total
-      let totalAmount = 0
-      for (const item of cartItems) {
-        if (!item.products.is_active) {
-          return res.status(400).json({
-            message: `Product ${item.products.name} is no longer available`,
-          })
-        }
-        if (item.products.stock_quantity < item.quantity) {
-          return res.status(400).json({
-            message: `Insufficient stock for ${item.products.name}`,
-          })
-        }
-        totalAmount += item.products.price * item.quantity
-      }
-
-      // Create shipping address
-      const { data: address, error: addressError } = await supabase
-        .from("addresses")
-        .insert({
-          user_id: req.user.id,
-          street_address: shippingAddress.streetAddress,
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          postal_code: shippingAddress.postalCode,
-          country: shippingAddress.country,
-        })
-        .select()
-        .single()
-
-      if (addressError) {
-        return res.status(500).json({ message: "Failed to create shipping address" })
-      }
-
-      // Create order
-      const { data: order, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          user_id: req.user.id,
-          total_amount: totalAmount,
-          shipping_address_id: address.id,
-          status: "pending",
-        })
-        .select()
-        .single()
-
-      if (orderError) {
-        return res.status(500).json({ message: "Failed to create order" })
-      }
-
-      // Create order items and update stock
-      const orderItems = []
-      for (const item of cartItems) {
-        // Create order item
-        const { data: orderItem, error: orderItemError } = await supabase
-          .from("order_items")
-          .insert({
-            order_id: order.id,
-            product_id: item.product_id,
-            quantity: item.quantity,
-            price: item.products.price,
-          })
-          .select()
-          .single()
-
-        if (orderItemError) {
-          return res.status(500).json({ message: "Failed to create order items" })
-        }
-
-        orderItems.push(orderItem)
-
-        // Update product stock
-        const { error: stockError } = await supabase
-          .from("products")
-          .update({
-            stock_quantity: item.products.stock_quantity - item.quantity,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", item.product_id)
-
-        if (stockError) {
-          return res.status(500).json({ message: "Failed to update product stock" })
-        }
-      }
-
-      // Clear user's cart
-      const { error: clearCartError } = await supabase.from("cart").delete().eq("user_id", req.user.id)
-
-      if (clearCartError) {
-        console.error("Failed to clear cart:", clearCartError)
-      }
-
-      res.status(201).json({
-        message: "Order created successfully",
-        order: {
-          ...order,
-          order_items: orderItems,
-          addresses: address,
-        },
-      })
-    } catch (error) {
-      console.error("Order creation error:", error)
-      res.status(500).json({ message: "Server error" })
-    }
-  },
-)
+// Orders are created through the Razorpay payment flow in /api/payments.
 
 // Update order status (Admin only)
 router.put(
   "/:id/status",
   authenticateToken,
   requireAdmin,
-  [body("status").isIn(["pending", "processing", "shipped", "delivered", "cancelled"])],
+  [body("status").isIn(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"])],
   async (req, res) => {
     try {
       const errors = validationResult(req)

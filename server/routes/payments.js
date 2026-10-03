@@ -1,409 +1,534 @@
 import express from "express"
-import { authenticateToken } from "../middleware/auth.js"
-import supabase from "../config/supabase.js"
-import Stripe from "stripe"
+import crypto from "crypto"
+import Razorpay from "razorpay"
 
-// PayPal SDK
-import {
-  ApiError,
-  CheckoutPaymentIntent,
-  Client,
-  Environment,
-  LogLevel,
-  OrdersController,
-} from "@paypal/paypal-server-sdk"
+import supabase from "../config/supabase.js"
+import { authenticateToken } from "../middleware/auth.js"
 
 const router = express.Router()
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
-// PayPal client configuration
-const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET } = process.env
-
-const paypalClient = new Client({
-  clientCredentialsAuthCredentials: {
-    oAuthClientId: PAYPAL_CLIENT_ID,
-    oAuthClientSecret: PAYPAL_CLIENT_SECRET,
-  },
-  timeout: 0,
-  environment: Environment.Sandbox,
-  logging: {
-    logLevel: LogLevel.Info,
-    logRequest: {
-      logBody: true,
-    },
-    logResponse: {
-      logHeaders: true,
-    },
-  },
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
 })
 
-const ordersController = new OrdersController(paypalClient)
+const FREE_SHIPPING_THRESHOLD = 999
+const SHIPPING_FEE = 79
+const TAX_RATE = 0
 
-// Create Stripe checkout session
-router.post("/create-checkout-session", authenticateToken, async (req, res) => {
+const calculateTotals = (cartItems) => {
+  const subtotal = cartItems.reduce((sum, item) => {
+    return sum + Number(item.products.price) * item.quantity
+  }, 0)
+
+  const shipping =
+    subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE
+
+  const tax = subtotal * TAX_RATE
+
+  const total = subtotal + shipping + tax
+
+  return {
+    subtotal,
+    shipping,
+    tax,
+    total,
+  }
+}
+
+/*
+ * Create local pending order + Razorpay order
+ */
+router.post("/razorpay/create-order", authenticateToken, async (req, res) => {
   try {
-    const { cartItems, shippingAddress } = req.body
+    const { shippingAddress } = req.body
     const userId = req.user.id
 
-    // Calculate totals
-    const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
-    const shipping = subtotal >= 50 ? 0 : 9.99
-    const tax = subtotal * 0.08
-    const total = subtotal + shipping + tax
-
-    // Create line items for Stripe
-    const lineItems = cartItems.map((item) => ({
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: item.name || item.products?.name,
-          description: item.description || item.products?.description,
-        },
-        unit_amount: Math.round(item.price * 100), // Convert to cents
-      },
-      quantity: item.quantity,
-    }))
-
-    // Add shipping as line item if applicable
-    if (shipping > 0) {
-      lineItems.push({
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: "Shipping",
-          },
-          unit_amount: Math.round(shipping * 100),
-        },
-        quantity: 1,
+    if (!shippingAddress) {
+      return res.status(400).json({
+        message: "Shipping address is required",
       })
     }
 
-    // Add tax as line item
-    lineItems.push({
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: "Tax",
-        },
-        unit_amount: Math.round(tax * 100),
-      },
-      quantity: 1,
-    })
+    const requiredFields = [
+      "streetAddress",
+      "city",
+      "state",
+      "postalCode",
+      "country",
+    ]
 
-    const session = await stripe.checkout.sessions.create({
-      ui_mode: "embedded",
-      line_items: lineItems,
-      mode: "payment",
-      return_url: `${process.env.CLIENT_URL || "http://localhost:3000"}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
-      metadata: {
+    for (const field of requiredFields) {
+      if (!shippingAddress[field]?.trim()) {
+        return res.status(400).json({
+          message: `${field} is required`,
+        })
+      }
+    }
+
+    /*
+     * IMPORTANT:
+     * Get the cart from the database.
+     * Never trust prices supplied by React.
+     */
+    const { data: cartItems, error: cartError } = await supabase
+      .from("cart")
+      .select(`
+        *,
+        products (
+          id,
+          name,
+          description,
+          price,
+          stock_quantity,
+          image_url,
+          is_active
+        )
+      `)
+      .eq("user_id", userId)
+
+    if (cartError) {
+      console.error("Cart fetch error:", cartError)
+
+      return res.status(500).json({
+        message: "Failed to fetch cart",
+      })
+    }
+
+    if (!cartItems || cartItems.length === 0) {
+      return res.status(400).json({
+        message: "Your cart is empty",
+      })
+    }
+
+    /*
+     * Validate products and stock
+     */
+    for (const item of cartItems) {
+      if (!item.products) {
+        return res.status(400).json({
+          message: "A product in your cart is no longer available",
+        })
+      }
+
+      if (!item.products.is_active) {
+        return res.status(400).json({
+          message: `${item.products.name} is no longer available`,
+        })
+      }
+
+      if (item.products.stock_quantity < item.quantity) {
+        return res.status(400).json({
+          message: `Insufficient stock for ${item.products.name}`,
+        })
+      }
+
+      if (item.quantity <= 0) {
+        return res.status(400).json({
+          message: `Invalid quantity for ${item.products.name}`,
+        })
+      }
+    }
+
+    const totals = calculateTotals(cartItems)
+
+    /*
+     * Create shipping address
+     */
+    const { data: address, error: addressError } = await supabase
+      .from("addresses")
+      .insert({
         user_id: userId,
-        cart_items: JSON.stringify(cartItems),
-        shipping_address: JSON.stringify(shippingAddress),
+        street_address: shippingAddress.streetAddress,
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        postal_code: shippingAddress.postalCode,
+        country: shippingAddress.country,
+        is_default: false,
+      })
+      .select()
+      .single()
+
+    if (addressError) {
+      console.error("Address creation error:", addressError)
+
+      return res.status(500).json({
+        message: "Failed to create shipping address",
+      })
+    }
+
+    /*
+     * Create our local pending order first.
+     *
+     * payment_intent_id will temporarily contain
+     * the Razorpay order ID after it is created.
+     */
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .insert({
+        user_id: userId,
+        total_amount: totals.total,
+        shipping_address_id: address.id,
+        status: "pending",
+        payment_method: "razorpay",
+      })
+      .select()
+      .single()
+
+    if (orderError) {
+      console.error("Local order creation error:", orderError)
+
+      return res.status(500).json({
+        message: "Failed to create order",
+      })
+    }
+
+    /*
+     * Create order items using prices from DB.
+     */
+    const orderItems = cartItems.map((item) => ({
+      order_id: order.id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      price: Number(item.products.price),
+    }))
+
+    const { error: orderItemsError } = await supabase
+      .from("order_items")
+      .insert(orderItems)
+
+    if (orderItemsError) {
+      console.error("Order items creation error:", orderItemsError)
+
+      await supabase
+        .from("orders")
+        .delete()
+        .eq("id", order.id)
+
+      return res.status(500).json({
+        message: "Failed to create order items",
+      })
+    }
+
+    /*
+     * Razorpay expects the amount in the smallest currency unit.
+     *
+     * ₹499 -> 49900 paise
+     */
+    const razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(totals.total * 100),
+      currency: "INR",
+      receipt: `bookstore_${order.id}`,
+      notes: {
+        local_order_id: order.id,
+        user_id: userId,
       },
     })
 
-    res.send({ clientSecret: session.client_secret })
-  } catch (error) {
-    console.error("Stripe session creation error:", error)
-    res.status(500).json({ error: "Failed to create checkout session" })
-  }
-})
+    /*
+     * Save Razorpay order ID against our local order.
+     */
+    const { error: updateOrderError } = await supabase
+      .from("orders")
+      .update({
+        payment_intent_id: razorpayOrder.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id)
 
-// Create PayPal order
-router.post("/paypal/orders", authenticateToken, async (req, res) => {
-  try {
-    const { cartItems } = req.body
+    if (updateOrderError) {
+      console.error(
+        "Failed to save Razorpay order ID:",
+        updateOrderError,
+      )
 
-    // Calculate total from cart items
-    const total = cartItems.reduce((sum, item) => {
-      const price = Number.parseFloat(item.products?.price || item.price)
-      return sum + price * item.quantity
-    }, 0)
+      return res.status(500).json({
+        message: "Failed to initialize payment",
+      })
+    }
 
-    const collect = {
-      body: {
-        intent: CheckoutPaymentIntent.Capture,
-        purchaseUnits: [
-          {
-            amount: {
-              currencyCode: "USD",
-              value: total.toFixed(2),
-            },
-          },
-        ],
+    res.status(201).json({
+      message: "Razorpay order created",
+      keyId: process.env.RAZORPAY_KEY_ID,
+
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
       },
-      prefer: "return=minimal",
-    }
 
-    const { body, ...httpResponse } = await ordersController.createOrder(collect)
+      localOrderId: order.id,
 
-    const jsonResponse = JSON.parse(body)
-    res.status(httpResponse.statusCode).json(jsonResponse)
+      totals,
+    })
   } catch (error) {
-    console.error("Failed to create order:", error)
-    if (error instanceof ApiError) {
-      res.status(error.statusCode || 500).json({ error: error.message })
-    } else {
-      res.status(500).json({ error: "Failed to create order." })
-    }
+    console.error("Razorpay create order error:", error)
+
+    res.status(500).json({
+      message: "Failed to create Razorpay order",
+    })
   }
 })
 
-// Capture PayPal payment
-router.post("/paypal/orders/:orderID/capture", authenticateToken, async (req, res) => {
+/*
+ * Verify Razorpay payment
+ */
+router.post("/razorpay/verify", authenticateToken, async (req, res) => {
   try {
-    const { orderID } = req.params
-    const { cartItems, shippingAddress } = req.body
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = req.body
+
     const userId = req.user.id
 
-    const collect = {
-      id: orderID,
-      prefer: "return=minimal",
+    if (
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
+    ) {
+      return res.status(400).json({
+        message: "Missing payment verification details",
+      })
     }
 
-    const { body, ...httpResponse } = await ordersController.captureOrder(collect)
-    const jsonResponse = JSON.parse(body)
+    /*
+     * IMPORTANT:
+     * Get our trusted Razorpay order ID from our database.
+     *
+     * Do not blindly trust the order ID returned by the browser
+     * for signature generation.
+     */
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("payment_intent_id", razorpay_order_id)
+      .eq("user_id", userId)
+      .single()
 
-    if (httpResponse.statusCode === 201) {
-      // Process the order in our database
-      const subtotal = cartItems.reduce((sum, item) => {
-        const price = Number.parseFloat(item.products?.price || item.price)
-        return sum + price * item.quantity
-      }, 0)
-      const shipping = subtotal >= 50 ? 0 : 9.99
-      const tax = subtotal * 0.08
-      const total = subtotal + shipping + tax
-
-      // Create address record
-      const { data: address, error: addressError } = await supabase
-        .from("addresses")
-        .insert({
-          user_id: userId,
-          street_address: shippingAddress.streetAddress,
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          postal_code: shippingAddress.postalCode,
-          country: shippingAddress.country,
-          is_default: false,
-        })
-        .select()
-        .single()
-
-      if (addressError) throw addressError
-
-      // Create order in database
-      const { data: order, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          user_id: userId,
-          total_amount: total.toFixed(2),
-          status: "confirmed",
-          payment_method: "paypal",
-          payment_intent_id: orderID,
-          shipping_address_id: address.id,
-        })
-        .select()
-        .single()
-
-      if (orderError) throw orderError
-
-      const orderItems = cartItems.map((item) => ({
-        order_id: order.id,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        price: Number.parseFloat(item.products?.price || item.price),
-      }))
-
-      const { error: itemsError } = await supabase.from("order_items").insert(orderItems)
-      if (itemsError) throw itemsError
-
-      for (const item of cartItems) {
-        // Get current stock
-        const { data: product } = await supabase
-          .from("products")
-          .select("stock_quantity")
-          .eq("id", item.product_id)
-          .single()
-
-        if (product) {
-          const newStock = product.stock_quantity - item.quantity
-          await supabase
-            .from("products")
-            .update({ stock_quantity: Math.max(0, newStock) })
-            .eq("id", item.product_id)
-        }
-      }
-
-      // Clear user's cart
-      await supabase.from("cart").delete().eq("user_id", userId)
+    if (orderError || !order) {
+      return res.status(404).json({
+        message: "Order not found",
+      })
     }
 
-    res.status(httpResponse.statusCode).json(jsonResponse)
-  } catch (error) {
-    console.error("Failed to capture order:", error)
-    if (error instanceof ApiError) {
-      res.status(error.statusCode || 500).json({ error: error.message })
-    } else {
-      res.status(500).json({ error: "Failed to capture order." })
-    }
-  }
-})
-
-// Get session status without authentication
-router.get("/session-status", async (req, res) => {
-  try {
-    const session = await stripe.checkout.sessions.retrieve(req.query.session_id)
-
-    if (session.status === "complete" && session.payment_status === "paid") {
-      const { data: existingOrder } = await supabase
-        .from("orders")
-        .select("id")
-        .eq("payment_intent_id", session.payment_intent)
-        .single()
-
-      if (existingOrder) {
-        // Order already exists, return existing order info
-        return res.send({
-          status: session.status,
-          customer_email: session.customer_details?.email || session.customer_email,
-          orderId: existingOrder.id,
-        })
-      }
-
-      // Get user ID from session metadata
-      const userId = session.metadata.user_id
-      const cartItems = JSON.parse(session.metadata.cart_items)
-      const shippingAddress = JSON.parse(session.metadata.shipping_address)
-
-      // Calculate totals
-      const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
-      const shipping = subtotal >= 50 ? 0 : 9.99
-      const tax = subtotal * 0.08
-      const total = subtotal + shipping + tax
-
-      // Create address record
-      const { data: address, error: addressError } = await supabase
-        .from("addresses")
-        .insert({
-          user_id: userId,
-          street_address: shippingAddress.streetAddress,
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          postal_code: shippingAddress.postalCode,
-          country: shippingAddress.country,
-          is_default: false,
-        })
-        .select()
-        .single()
-
-      if (addressError) throw addressError
-
-      // Create order in database
-      const { data: order, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          user_id: userId,
-          total_amount: total.toFixed(2),
-          status: "confirmed",
-          payment_method: "stripe",
-          payment_intent_id: session.payment_intent,
-          shipping_address_id: address.id,
-        })
-        .select()
-        .single()
-
-      if (orderError) throw orderError
-
-      // Create order items
-      const orderItems = cartItems.map((item) => ({
-        order_id: order.id,
-        product_id: item.product_id || item.products?.id,
-        quantity: item.quantity,
-        price: Number.parseFloat(item.products?.price || item.price),
-      }))
-
-      const { error: itemsError } = await supabase.from("order_items").insert(orderItems)
-      if (itemsError) throw itemsError
-
-      for (const item of cartItems) {
-        const productId = item.product_id || item.products?.id
-
-        // Get current stock
-        const { data: product } = await supabase.from("products").select("stock_quantity").eq("id", productId).single()
-
-        if (product) {
-          const newStock = product.stock_quantity - item.quantity
-          await supabase
-            .from("products")
-            .update({ stock_quantity: Math.max(0, newStock) })
-            .eq("id", productId)
-        }
-      }
-
-      // Clear user's cart
-      await supabase.from("cart").delete().eq("user_id", userId)
-
-      return res.send({
-        status: session.status,
-        customer_email: session.customer_details?.email || session.customer_email,
+    /*
+     * Idempotency:
+     * If this payment has already been processed, return the order.
+     */
+    if (
+      order.status === "confirmed" &&
+      order.payment_intent_id === razorpay_order_id
+    ) {
+      return res.json({
+        message: "Payment already processed",
         orderId: order.id,
       })
     }
 
-    res.send({
-      status: session.status,
-      customer_email: session.customer_details?.email || session.customer_email,
+    /*
+     * Verify Razorpay signature.
+     */
+    const generatedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${order.payment_intent_id}|${razorpay_payment_id}`)
+      .digest("hex")
+
+    const generatedBuffer = Buffer.from(generatedSignature, "hex")
+    const receivedBuffer = Buffer.from(razorpay_signature, "hex")
+
+    const signaturesMatch =
+      generatedBuffer.length === receivedBuffer.length &&
+      crypto.timingSafeEqual(generatedBuffer, receivedBuffer)
+
+    if (!signaturesMatch) {
+      return res.status(400).json({
+        message: "Payment verification failed",
+      })
+    }
+
+    /*
+     * Fetch payment directly from Razorpay.
+     *
+     * This gives us an additional server-side check.
+     */
+    const payment = await razorpay.payments.fetch(
+      razorpay_payment_id,
+    )
+
+    if (!payment) {
+      return res.status(400).json({
+        message: "Payment could not be found",
+      })
+    }
+
+    if (payment.order_id !== order.payment_intent_id) {
+      return res.status(400).json({
+        message: "Payment does not belong to this order",
+      })
+    }
+
+    if (payment.currency !== "INR") {
+      return res.status(400).json({
+        message: "Invalid payment currency",
+      })
+    }
+
+    if (payment.status !== "captured") {
+      return res.status(400).json({
+        message: `Payment is ${payment.status}`,
+      })
+    }
+
+    /*
+     * Verify the amount against our local order.
+     */
+    const expectedAmount = Math.round(
+      Number(order.total_amount) * 100,
+    )
+
+    if (Number(payment.amount) !== expectedAmount) {
+      return res.status(400).json({
+        message: "Payment amount mismatch",
+      })
+    }
+
+    /*
+     * Fetch order items + products to validate stock again.
+     */
+    const { data: orderItems, error: orderItemsError } =
+      await supabase
+        .from("order_items")
+        .select(`
+          *,
+          products (
+            id,
+            name,
+            stock_quantity,
+            is_active
+          )
+        `)
+        .eq("order_id", order.id)
+
+    if (orderItemsError || !orderItems) {
+      return res.status(500).json({
+        message: "Failed to verify order items",
+      })
+    }
+
+    /*
+     * Validate stock one final time before fulfillment.
+     */
+    for (const item of orderItems) {
+      if (!item.products?.is_active) {
+        return res.status(400).json({
+          message: `${item.products?.name || "A product"} is no longer available`,
+        })
+      }
+
+      if (item.products.stock_quantity < item.quantity) {
+        return res.status(400).json({
+          message: `Insufficient stock for ${item.products.name}`,
+        })
+      }
+    }
+
+    /*
+     * Save payment ID and confirm order.
+     */
+    const { data: confirmedOrder, error: confirmError } =
+      await supabase
+        .from("orders")
+        .update({
+          status: "confirmed",
+          payment_method: "razorpay",
+          payment_intent_id: razorpay_order_id,
+          payment_id: razorpay_payment_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id)
+        .eq("user_id", userId)
+        .eq("status", "pending")
+        .is("payment_id", null)
+        .select()
+        .maybeSingle()
+
+    if (confirmError) {
+      console.error("Order confirmation error:", confirmError)
+
+      return res.status(500).json({
+        message: "Failed to confirm order",
+      })
+    }
+
+    if (!confirmedOrder) {
+      const { data: currentOrder } = await supabase
+        .from("orders")
+        .select("id, status, payment_id")
+        .eq("id", order.id)
+        .eq("user_id", userId)
+        .single()
+
+      if (
+        currentOrder?.status === "confirmed" &&
+        currentOrder.payment_id === razorpay_payment_id
+      ) {
+        return res.json({
+          message: "Payment already processed",
+          orderId: order.id,
+          paymentId: razorpay_payment_id,
+        })
+      }
+
+      return res.status(409).json({
+        message: "Order is already being processed",
+      })
+    }
+
+    /*
+     * Reduce stock.
+     */
+    for (const item of orderItems) {
+      const newStock =
+        item.products.stock_quantity - item.quantity
+
+      const { error: stockError } = await supabase
+        .from("products")
+        .update({
+          stock_quantity: Math.max(0, newStock),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", item.product_id)
+
+      if (stockError) {
+        console.error("Stock update error:", stockError)
+      }
+    }
+
+    /*
+     * Clear cart.
+     */
+    const { error: clearCartError } = await supabase
+      .from("cart")
+      .delete()
+      .eq("user_id", userId)
+
+    if (clearCartError) {
+      console.error("Cart clearing error:", clearCartError)
+    }
+
+    res.json({
+      message: "Payment verified and order confirmed",
+      orderId: order.id,
+      paymentId: razorpay_payment_id,
     })
   } catch (error) {
-    console.error("Session status error:", error)
-    res.status(500).json({ error: "Failed to retrieve session status" })
-  }
-})
+    console.error("Razorpay verification error:", error)
 
-// Official PayPal API routes
-router.post("/api/orders", async (req, res) => {
-  try {
-    const { cart } = req.body
-
-    const collect = {
-      body: {
-        intent: CheckoutPaymentIntent.Capture,
-        purchaseUnits: [
-          {
-            amount: {
-              currencyCode: "USD",
-              value: "100.00", // This should be calculated from cart in real implementation
-            },
-          },
-        ],
-      },
-      prefer: "return=minimal",
-    }
-
-    const { body, ...httpResponse } = await ordersController.createOrder(collect)
-    const jsonResponse = JSON.parse(body)
-    res.status(httpResponse.statusCode).json(jsonResponse)
-  } catch (error) {
-    console.error("Failed to create order:", error)
-    res.status(500).json({ error: "Failed to create order." })
-  }
-})
-
-router.post("/api/orders/:orderID/capture", async (req, res) => {
-  try {
-    const { orderID } = req.params
-
-    const collect = {
-      id: orderID,
-      prefer: "return=minimal",
-    }
-
-    const { body, ...httpResponse } = await ordersController.captureOrder(collect)
-    const jsonResponse = JSON.parse(body)
-    res.status(httpResponse.statusCode).json(jsonResponse)
-  } catch (error) {
-    console.error("Failed to capture order:", error)
-    res.status(500).json({ error: "Failed to capture order." })
+    res.status(500).json({
+      message: "Failed to verify payment",
+    })
   }
 })
 

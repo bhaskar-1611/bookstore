@@ -93,7 +93,7 @@ const Orders = () => {
                 <div className="border-t border-gray-200 pt-4">
                   <div className="flex justify-between items-center mb-4">
                     <span className="text-gray-600">Total Amount:</span>
-                    <span className="text-xl font-bold text-gray-900">${order.total_amount}</span>
+                    <span className="text-xl font-bold text-gray-900">₹{order.total_amount}</span>
                   </div>
 
                   {order.order_items && order.order_items.length > 0 && (
@@ -110,7 +110,7 @@ const Orders = () => {
                             <div className="flex-1">
                               <p className="text-sm font-medium text-gray-900">{item.products?.name}</p>
                               <p className="text-sm text-gray-600">
-                                Qty: {item.quantity} × ${item.price}
+                                Qty: {item.quantity} × ₹{item.price}
                               </p>
                             </div>
                           </div>

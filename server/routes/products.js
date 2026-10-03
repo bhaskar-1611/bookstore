@@ -19,7 +19,31 @@ router.get("/", async (req, res) => {
       sortOrder = "desc",
     } = req.query
 
-    const offset = (page - 1) * limit
+    const parsedPage = Number.parseInt(page, 10)
+    const parsedLimit = Number.parseInt(limit, 10)
+
+    if (
+      !Number.isInteger(parsedPage) ||
+      parsedPage < 1 ||
+      !Number.isInteger(parsedLimit) ||
+      parsedLimit < 1 ||
+      parsedLimit > 100
+    ) {
+      return res.status(400).json({ message: "Invalid pagination parameters" })
+    }
+
+    const safeSortColumns = new Set([
+      "created_at",
+      "name",
+      "price",
+      "stock_quantity",
+    ])
+
+    if (!safeSortColumns.has(sortBy)) {
+      return res.status(400).json({ message: "Invalid sort field" })
+    }
+
+    const offset = (parsedPage - 1) * parsedLimit
 
     let query = supabase
       .from("products")
@@ -34,7 +58,7 @@ router.get("/", async (req, res) => {
           image_url,
           is_primary
         )
-      `)
+      `, { count: "exact" })
       .eq("is_active", true)
 
     // Apply filters
@@ -43,7 +67,16 @@ router.get("/", async (req, res) => {
     }
 
     if (search) {
-      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`)
+      const safeSearch = String(search)
+        .slice(0, 100)
+        .replace(/[(),]/g, " ")
+        .trim()
+
+      if (safeSearch) {
+        query = query.or(
+          `name.ilike.%${safeSearch}%,description.ilike.%${safeSearch}%`,
+        )
+      }
     }
 
     if (minPrice) {
@@ -58,7 +91,7 @@ router.get("/", async (req, res) => {
     query = query.order(sortBy, { ascending: sortOrder === "asc" })
 
     // Apply pagination
-    query = query.range(offset, offset + limit - 1)
+    query = query.range(offset, offset + parsedLimit - 1)
 
     const { data: products, error, count } = await query
 
@@ -69,10 +102,10 @@ router.get("/", async (req, res) => {
     res.json({
       products,
       pagination: {
-        page: Number.parseInt(page),
-        limit: Number.parseInt(limit),
+        page: parsedPage,
+        limit: parsedLimit,
         total: count,
-        pages: Math.ceil(count / limit),
+        pages: Math.ceil(count / parsedLimit),
       },
     })
   } catch (error) {

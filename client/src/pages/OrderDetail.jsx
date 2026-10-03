@@ -79,6 +79,15 @@ const OrderDetail = () => {
     )
   }
 
+  const subtotal = (order.order_items || []).reduce(
+    (sum, item) => sum + Number(item.price) * Number(item.quantity),
+    0
+  )
+
+  const total = Number(order.total_amount)
+  const shipping = Math.max(0, total - subtotal)
+  const tax = 0
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Breadcrumb */}
@@ -191,10 +200,10 @@ const OrderDetail = () => {
                   <div className="flex-1">
                     <h3 className="font-medium text-gray-900">{item.products?.name}</h3>
                     <p className="text-gray-600">Quantity: {item.quantity}</p>
-                    <p className="text-gray-600">Price: ${item.price}</p>
+                    <p className="text-gray-600">Price: ₹{item.price}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-gray-900">${(item.price * item.quantity).toFixed(2)}</p>
+                    <p className="font-semibold text-gray-900">₹{(item.price * item.quantity).toFixed(2)}</p>
                   </div>
                 </div>
               ))}
@@ -206,25 +215,51 @@ const OrderDetail = () => {
         <div className="space-y-6">
           {/* Order Summary */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Order Summary
+            </h2>
+
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">${order.total_amount}</span>
+                <span className="font-medium">
+                  ₹{subtotal.toFixed(2)}
+                </span>
               </div>
+
               <div className="flex justify-between">
                 <span className="text-gray-600">Shipping</span>
-                <span className="font-medium">Free</span>
+                <span className="font-medium">
+                  {shipping === 0 ? "Free" : `₹${shipping.toFixed(2)}`}
+                </span>
               </div>
+
               <div className="flex justify-between">
                 <span className="text-gray-600">Tax</span>
-                <span className="font-medium">${(order.total_amount * 0.08).toFixed(2)}</span>
+                <span className="font-medium">
+                  ₹{tax.toFixed(2)}
+                </span>
               </div>
+
               <div className="border-t border-gray-200 pt-3">
                 <div className="flex justify-between">
-                  <span className="text-lg font-semibold">Total</span>
                   <span className="text-lg font-semibold">
-                    ${(Number.parseFloat(order.total_amount) + Number.parseFloat(order.total_amount) * 0.08).toFixed(2)}
+                    Total
+                  </span>
+
+                  <span className="text-lg font-semibold">
+                    ₹{total.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-3 mt-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Payment Method</span>
+                  <span className="font-medium">
+                    {order.payment_method === "razorpay"
+                      ? "Razorpay"
+                      : order.payment_method || "—"}
                   </span>
                 </div>
               </div>

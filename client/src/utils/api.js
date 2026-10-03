@@ -152,18 +152,11 @@ export const wishlistAPI = {
   removeFromWishlist: (productId) => api.delete(`/wishlist/${productId}`),
 }
 
-export const paymentsAPI = {
-  createPayPalOrder: (cartItems, totalAmount) => api.post("/payments/create-paypal-order", { cartItems, totalAmount }),
-  capturePayPalOrder: (orderID, cartItems, shippingAddress) =>
-    api.post("/payments/capture-paypal-order", { orderID, cartItems, shippingAddress }),
-}
-
 // Admin API
 export const adminAPI = {
   getDashboard: () => api.get("/admin/dashboard"),
   getOrders: (params) => api.get("/admin/orders", { params }),
   getUsers: (params) => api.get("/admin/users", { params }),
-  createAdmin: () => api.post("/admin/create-admin"),
 }
 
 export default api

@@ -1,8 +1,19 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Edit2, Trash2, Search } from "lucide-react"
 import { categoriesAPI } from "../../utils/api"
+import {
+  Search,
+  Plus,
+  Pencil,
+  Trash2,
+  BookOpenText,
+  Sparkles,
+  Heart,
+  Drama,
+  BookOpen,
+  Edit2
+} from "lucide-react"
 
 const AdminCategories = () => {
   const [categories, setCategories] = useState([])
@@ -31,6 +42,14 @@ const AdminCategories = () => {
     } finally {
       setLoading(false)
     }
+  }
+
+  const categoryIcons = {
+    "Contemporary Fiction": BookOpenText,
+    Fantasy: Sparkles,
+    Romance: Heart,
+    Thriller: Drama,
+    "Young Adult": BookOpen,
   }
 
   const handleSubmit = async (e) => {
@@ -145,11 +164,12 @@ const AdminCategories = () => {
                   <tr key={category.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <img
-                          src={category.image_url || "/placeholder.svg?height=40&width=40&query=category"}
-                          alt={category.name}
-                          className="h-10 w-10 rounded-lg object-cover"
-                        />
+                        <div className="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center">
+                          {(() => {
+                            const Icon = categoryIcons[category.name] || BookOpen
+                            return <Icon className="h-5 w-5 text-blue-600" />
+                          })()}
+                        </div>
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">{category.name}</div>
                         </div>

@@ -1,7 +1,8 @@
 import express from "express"
 import { body, validationResult } from "express-validator"
-import supabase from "../config/supabase.js"
+import { supabaseAdmin, supabaseAuth } from "../config/supabase.js"
 import { authenticateToken } from "../middleware/auth.js"
+import { SupabaseAuthClient } from "@supabase/supabase-js/dist/module/lib/SupabaseAuthClient.js"
 
 const router = express.Router()
 
@@ -23,7 +24,7 @@ router.post(
 
       const { email, password, firstName, lastName, phone } = req.body
 
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await supabaseAuth.auth.signUp({
         email,
         password,
         options: {
@@ -40,22 +41,22 @@ router.post(
         return res.status(400).json({ message: error.message })
       }
 
-      if (data.user) {
-        const { error: dbError } = await supabase.from("users").insert({
-          id: data.user.id,
-          email: data.user.email,
-          first_name: firstName,
-          last_name: lastName,
-          phone: phone || null,
-          is_active: true,
-          email_verified: data.user.email_confirmed_at ? true : false,
-          created_at: data.user.created_at,
-        })
+      // if (data.user) {
+      //   const { error: dbError } = await supabase.from("users").insert({
+      //     id: data.user.id,
+      //     email: data.user.email,
+      //     first_name: firstName,
+      //     last_name: lastName,
+      //     phone: phone || null,
+      //     is_active: true,
+      //     email_verified: data.user.email_confirmed_at ? true : false,
+      //     created_at: data.user.created_at,
+      //   })
 
-        if (dbError) {
-          console.error("Database insert error:", dbError)
-        }
-      }
+      //   if (dbError) {
+      //     console.error("Database insert error:", dbError)
+      //   }
+      // }
 
       res.status(201).json({
         message: data.user?.email_confirmed_at
@@ -86,7 +87,7 @@ router.post("/resend-verification", [body("email").isEmail().normalizeEmail()], 
 
     const { email } = req.body
 
-    const { error } = await supabase.auth.resend({
+    const { error } = await supabaseAuth.auth.resend({
       type: "signup",
       email: email,
     })
@@ -111,7 +112,7 @@ router.post("/login", [body("email").isEmail().normalizeEmail(), body("password"
 
     const { email, password } = req.body
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabaseAuth.auth.signInWithPassword({
       email,
       password,
     })
@@ -121,7 +122,7 @@ router.post("/login", [body("email").isEmail().normalizeEmail(), body("password"
     }
 
     // Get additional user data from our users table
-    const { data: userData, error: userError } = await supabase
+    const { data: userData, error: userError } = await supabaseAdmin
       .from("users")
       .select("*")
       .eq("id", data.user.id)
@@ -132,7 +133,7 @@ router.post("/login", [body("email").isEmail().normalizeEmail(), body("password"
     }
 
     // Update last login
-    await supabase.from("users").update({ last_login: new Date().toISOString() }).eq("id", data.user.id)
+    await supabaseAdmin.from("users").update({ last_login: new Date().toISOString() }).eq("id", data.user.id)
 
     res.json({
       message: "Login successful",
@@ -163,7 +164,7 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ message: "Refresh token required" })
     }
 
-    const { data, error } = await supabase.auth.refreshSession({
+    const { data, error } = await supabaseAuth.auth.refreshSession({
       refresh_token: refreshToken,
     })
 
@@ -171,7 +172,10 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ message: error.message })
     }
 
-    res.json({ accessToken: data.session.access_token })
+    res.json({
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+    })
   } catch (error) {
     console.error("Refresh token error:", error)
     res.status(401).json({ message: "Invalid refresh token" })
@@ -181,16 +185,21 @@ router.post("/refresh", async (req, res) => {
 router.post("/logout", async (req, res) => {
   try {
     const authHeader = req.headers.authorization
-    const token = authHeader && authHeader.split(" ")[1]
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : null
 
     if (token) {
-      await supabase.auth.signOut()
+      const { error } = await supabaseAuth.auth.admin.signOut(token, "local")
+      if (error) {
+        console.error("Logout revocation error:", error)
+      }
     }
 
     res.json({ message: "Logged out successfully" })
   } catch (error) {
     console.error("Logout error:", error)
-    res.status(500).json({ message: "Server error" })
+    res.json({ message: "Logged out successfully" })
   }
 })
 
@@ -203,7 +212,7 @@ router.post("/forgot-password", [body("email").isEmail().normalizeEmail()], asyn
 
     const { email } = req.body
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabaseAuth.auth.resetPasswordForEmail(email, {
       redirectTo: `${process.env.CLIENT_URL || "http://localhost:3000"}/reset-password`,
     })
 
@@ -238,13 +247,13 @@ router.post("/reset-password", [body("password").isLength({ min: 6 })], async (r
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(token)
+    } = await supabaseAdmin.auth.getUser(token)
 
     if (userError || !user) {
       return res.status(401).json({ message: "Invalid or expired token" })
     }
 
-    const { error } = await supabase.auth.updateUser({
+    const { error } = await supabaseAuth.auth.updateUser({
       password: password,
     })
 
@@ -267,68 +276,6 @@ router.post("/verify-email", async (req, res) => {
   } catch (error) {
     console.error("Email verification error:", error)
     res.status(400).json({ message: "Verification error" })
-  }
-})
-
-router.post("/create-admin", async (req, res) => {
-  try {
-    const adminEmail = "admin@example.com"
-    const adminPassword = "admin123"
-
-    // First, try to sign up the admin user in Supabase auth
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: adminEmail,
-      password: adminPassword,
-      options: {
-        data: {
-          first_name: "Admin",
-          last_name: "User",
-        },
-      },
-    })
-
-    if (signUpError && !signUpError.message.includes("already registered")) {
-      console.error("Admin signup error:", signUpError)
-      return res.status(400).json({ message: signUpError.message })
-    }
-
-    // Get or create the user in our database
-    let userId = signUpData?.user?.id
-
-    // If user already exists in Supabase auth, get their ID
-    if (!userId) {
-      const { data: existingUsers } = await supabase.auth.admin.listUsers()
-      const existingUser = existingUsers?.users?.find((user) => user.email === adminEmail)
-      userId = existingUser?.id
-    }
-
-    if (userId) {
-      // Insert or update in our users table
-      const { error: dbError } = await supabase.from("users").upsert({
-        id: userId,
-        email: adminEmail,
-        first_name: "Admin",
-        last_name: "User",
-        role: "admin",
-        is_active: true,
-        email_verified: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-
-      if (dbError) {
-        console.error("Database upsert error:", dbError)
-      }
-    }
-
-    res.json({
-      message: "Admin user created successfully. You can now login with admin@example.com / admin123",
-      adminEmail,
-      adminPassword,
-    })
-  } catch (error) {
-    console.error("Create admin error:", error)
-    res.status(500).json({ message: "Server error creating admin user" })
   }
 })
 
@@ -367,7 +314,7 @@ router.put(
       if (phone !== undefined) updateData.phone = phone
       updateData.updated_at = new Date().toISOString()
 
-      const { data: user, error } = await supabase
+      const { data: user, error } = await supabaseAdmin
         .from("users")
         .update(updateData)
         .eq("id", req.user.id)

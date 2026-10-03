@@ -22,13 +22,21 @@ router.get("/dashboard", authenticateToken, requireAdmin, async (req, res) => {
       .from("orders")
       .select("*", { count: "exact", head: true })
 
-    // Get total revenue
+    // Get total revenue from confirmed and completed orders
     const { data: revenueData, error: revenueError } = await supabase
       .from("orders")
       .select("total_amount")
-      .eq("status", "delivered")
+      .in("status", ["confirmed", "processing", "shipped", "delivered"])
 
-    const totalRevenue = revenueData?.reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0) || 0
+    if (revenueError) {
+      console.error("Failed to load revenue:", revenueError)
+    }
+
+    const totalRevenue =
+      revenueData?.reduce(
+        (sum, order) => sum + Number.parseFloat(order.total_amount || 0),
+        0
+      ) || 0
 
     // Get recent orders
     const { data: recentOrders, error: recentOrdersError } = await supabase
@@ -74,12 +82,18 @@ router.get("/dashboard", authenticateToken, requireAdmin, async (req, res) => {
 })
 
 // Get all orders (Admin only)
+// Get all orders (Admin only)
 router.get("/orders", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 20, status } = req.query
+    const page = Number.parseInt(req.query.page) || 1
+    const limit = Number.parseInt(req.query.limit) || 20
+    const { status } = req.query
+
     const offset = (page - 1) * limit
 
-    let query = supabase.from("orders").select(`
+    let query = supabase
+      .from("orders")
+      .select(`
         *,
         users (
           first_name,
@@ -93,7 +107,7 @@ router.get("/orders", authenticateToken, requireAdmin, async (req, res) => {
             name
           )
         )
-      `)
+      `, { count: "exact" })
 
     if (status) {
       query = query.eq("status", status)
@@ -103,19 +117,24 @@ router.get("/orders", authenticateToken, requireAdmin, async (req, res) => {
       data: orders,
       error,
       count,
-    } = await query.order("created_at", { ascending: false }).range(offset, offset + limit - 1)
+    } = await query
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1)
 
     if (error) {
-      return res.status(500).json({ message: "Failed to fetch orders" })
+      console.error("Admin orders fetch error:", error)
+      return res.status(500).json({
+        message: "Failed to fetch orders",
+      })
     }
 
     res.json({
       orders,
       pagination: {
-        page: Number.parseInt(page),
-        limit: Number.parseInt(limit),
-        total: count,
-        pages: Math.ceil(count / limit),
+        page,
+        limit,
+        total: count || 0,
+        pages: Math.ceil((count || 0) / limit),
       },
     })
   } catch (error) {
@@ -127,7 +146,13 @@ router.get("/orders", authenticateToken, requireAdmin, async (req, res) => {
 // Get all users (Admin only)
 router.get("/users", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query
+    const page = Number.parseInt(req.query.page, 10) || 1
+    const limit = Number.parseInt(req.query.limit, 10) || 20
+
+    if (page < 1 || limit < 1 || limit > 100) {
+      return res.status(400).json({ message: "Invalid pagination parameters" })
+    }
+
     const offset = (page - 1) * limit
 
     const {
@@ -136,7 +161,9 @@ router.get("/users", authenticateToken, requireAdmin, async (req, res) => {
       count,
     } = await supabase
       .from("users")
-      .select("id, email, first_name, last_name, role, created_at")
+      .select("id, email, first_name, last_name, role, created_at", {
+        count: "exact",
+      })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -147,10 +174,10 @@ router.get("/users", authenticateToken, requireAdmin, async (req, res) => {
     res.json({
       users,
       pagination: {
-        page: Number.parseInt(page),
-        limit: Number.parseInt(limit),
-        total: count,
-        pages: Math.ceil(count / limit),
+        page,
+        limit,
+        total: count || 0,
+        pages: Math.ceil((count || 0) / limit),
       },
     })
   } catch (error) {

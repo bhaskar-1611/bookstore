@@ -60,9 +60,12 @@ export const AuthProvider = ({ children }) => {
     setIsRefreshing(true)
     try {
       const response = await authAPI.refreshToken(refreshToken)
-      const { accessToken } = response.data
+      const { accessToken, refreshToken } = response.data
 
       localStorage.setItem("accessToken", accessToken)
+      if (refreshToken) {
+        localStorage.setItem("refreshToken", refreshToken)
+      }
       await loadUser()
       return true
     } catch (error) {
