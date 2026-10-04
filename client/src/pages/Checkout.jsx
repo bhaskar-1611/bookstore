@@ -11,7 +11,7 @@ const SHIPPING_FEE = 79
 const TAX_RATE = 0
 
 const Checkout = () => {
-  const { cartItems, total } = useCart()
+  const { cartItems, total, loadCart } = useCart()
   const navigate = useNavigate()
 
   const [loading, setLoading] = useState(false)
@@ -150,6 +150,8 @@ const Checkout = () => {
                 "Payment verification failed"
               )
             }
+
+            await loadCart()
 
             navigate(
               `/orders/${verifyData.orderId}?payment=success&method=razorpay&id=${verifyData.paymentId}`
