@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Link, useSearchParams, useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Eye, EyeOff, CheckCircle, AlertCircle, Key } from "lucide-react"
-import { useAuth } from "../contexts/AuthContext"
+import { supabase } from "../utils/supabase"
 
 const ResetPassword = () => {
   const [formData, setFormData] = useState({
@@ -15,17 +15,67 @@ const ResetPassword = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { resetPassword } = useAuth()
+  const [recoveryReady, setRecoveryReady] = useState(false)
 
-  const token = searchParams.get("token")
 
   useEffect(() => {
-    if (!token) {
-      setError("Invalid or missing reset token. Please request a new password reset link.")
+    let mounted = true
+
+    const initializeRecovery = async () => {
+      try {
+        // If PKCE returned a code, exchange it for a session.
+        const params = new URLSearchParams(window.location.search)
+        const code = params.get("code")
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+          if (error) {
+            console.error("Recovery session error:", error)
+
+            if (mounted) {
+              setError(
+                "This password reset link is invalid or has expired. Please request a new link."
+              )
+            }
+
+            return
+          }
+        }
+
+        const { data, error } = await supabase.auth.getSession()
+
+        if (error || !data.session) {
+          if (mounted) {
+            setError(
+              "This password reset link is invalid or has expired. Please request a new link."
+            )
+          }
+
+          return
+        }
+
+        if (mounted) {
+          setRecoveryReady(true)
+        }
+      } catch (error) {
+        console.error("Password recovery initialization failed:", error)
+
+        if (mounted) {
+          setError(
+            "This password reset link is invalid or has expired. Please request a new link."
+          )
+        }
+      }
     }
-  }, [token])
+
+    initializeRecovery()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const handleChange = (e) => {
     setFormData({
@@ -37,6 +87,11 @@ const ResetPassword = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    if (!recoveryReady) {
+      setError("Your password reset session is not ready.")
+      return
+    }
 
     if (formData.password !== formData.confirmPassword) {
       setError("Passwords do not match")
@@ -51,18 +106,30 @@ const ResetPassword = () => {
     setLoading(true)
     setError("")
 
-    const result = await resetPassword(token, formData.password)
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: formData.password,
+      })
 
-    if (result.success) {
+      if (error) {
+        setError(error.message)
+        return
+      }
+
       setSuccess(true)
+
       setTimeout(() => {
         navigate("/login")
       }, 3000)
-    } else {
-      setError(result.error)
-    }
+    } catch (error) {
+      console.error("Password reset error:", error)
 
-    setLoading(false)
+      setError(
+        error.message || "Failed to reset password. Please try again."
+      )
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (success) {
@@ -117,7 +184,7 @@ const ResetPassword = () => {
                 <div>
                   <p className="text-red-800 font-medium">Reset Failed</p>
                   <p className="text-red-700 text-sm mt-1">{error}</p>
-                  {error.includes("token") && (
+                  {(
                     <div className="mt-2">
                       <Link to="/forgot-password" className="text-sm text-red-600 hover:text-red-500 underline">
                         Request a new reset link
@@ -192,7 +259,7 @@ const ResetPassword = () => {
           <div>
             <button
               type="submit"
-              disabled={loading || !token}
+              disabled={loading || !recoveryReady}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Resetting..." : "Reset password"}
