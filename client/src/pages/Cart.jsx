@@ -17,7 +17,6 @@ import { useAuth } from "../contexts/AuthContext"
 // Easy to change later when you decide the actual bookstore policy.
 const FREE_SHIPPING_THRESHOLD = 999
 const SHIPPING_FEE = 79
-const TAX_RATE = 0.08
 
 const Cart = () => {
   const {
@@ -51,8 +50,7 @@ const Cart = () => {
   const shipping =
     total >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE
 
-  const tax = total * TAX_RATE
-  const grandTotal = total + shipping + tax
+  const grandTotal = total + shipping
 
   const itemCount = cartItems.reduce(
     (count, item) => count + item.quantity,
@@ -567,18 +565,6 @@ const Cart = () => {
                   </span>
                 </div>
 
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">
-                    Estimated tax
-                  </span>
-
-                  <span className="font-semibold text-gray-900">
-                    ₹{tax.toLocaleString("en-IN", {
-                      minimumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
-
                 <div className="
                   border-t
                   border-gray-100
@@ -592,9 +578,6 @@ const Cart = () => {
                       Total
                     </p>
 
-                    <p className="text-xs text-gray-400 mt-1">
-                      Including estimated tax
-                    </p>
                   </div>
 
                   <p className="
