@@ -20,60 +20,30 @@ const ResetPassword = () => {
 
 
   useEffect(() => {
-    let mounted = true
+    const checkRecoverySession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
 
-    const initializeRecovery = async () => {
-      try {
-        // If PKCE returned a code, exchange it for a session.
-        const params = new URLSearchParams(window.location.search)
-        const code = params.get("code")
-
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code)
-
-          if (error) {
-            console.error("Recovery session error:", error)
-
-            if (mounted) {
-              setError(
-                "This password reset link is invalid or has expired. Please request a new link."
-              )
-            }
-
-            return
-          }
-        }
-
-        const { data, error } = await supabase.auth.getSession()
-
-        if (error || !data.session) {
-          if (mounted) {
-            setError(
-              "This password reset link is invalid or has expired. Please request a new link."
-            )
-          }
-
-          return
-        }
-
-        if (mounted) {
-          setRecoveryReady(true)
-        }
-      } catch (error) {
-        console.error("Password recovery initialization failed:", error)
-
-        if (mounted) {
-          setError(
-            "This password reset link is invalid or has expired. Please request a new link."
-          )
-        }
+      if (session) {
+        setRecoveryReady(true)
       }
     }
 
-    initializeRecovery()
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("Supabase auth event:", event)
+
+      if (event === "PASSWORD_RECOVERY" && session) {
+        setRecoveryReady(true)
+      }
+    })
+
+    checkRecoverySession()
 
     return () => {
-      mounted = false
+      subscription.unsubscribe()
     }
   }, [])
 
@@ -89,7 +59,9 @@ const ResetPassword = () => {
     e.preventDefault()
 
     if (!recoveryReady) {
-      setError("Your password reset session is not ready.")
+      setError(
+        "Your password reset session is not ready. Please request a new reset link."
+      )
       return
     }
 
@@ -112,11 +84,12 @@ const ResetPassword = () => {
       })
 
       if (error) {
-        setError(error.message)
-        return
+        throw error
       }
 
       setSuccess(true)
+
+      await supabase.auth.signOut()
 
       setTimeout(() => {
         navigate("/login")
